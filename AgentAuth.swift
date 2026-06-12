@@ -23,7 +23,7 @@ class AppState: ObservableObject {
     @Published var statusMessage: String = ""
 
     let home = FileManager.default.homeDirectoryForCurrentUser
-    let logPath = "/tmp/agent-auth.log"
+    let logPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/agent-auth.log").path
     lazy var ccPath = home.appendingPathComponent(".claude/settings.json").path
     lazy var opencodePath = home.appendingPathComponent(".config/opencode/opencode.json").path
     lazy var hermesPath = home.appendingPathComponent(".hermes/config.yaml").path
