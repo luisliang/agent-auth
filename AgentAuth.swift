@@ -223,7 +223,7 @@ struct ContentView: View {
                 Button("应用") { state.apply() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }.padding(.horizontal, 20).padding(.vertical, 14)
         }
-        .frame(width: 380, height: 280)
+        .frame(width: 480, height: 320)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear { state.refreshUI() }
     }
