@@ -29,25 +29,30 @@ class AppState: ObservableObject {
     lazy var hookDir = home.appendingPathComponent(".claude/hooks").path
     lazy var hookScript = home.appendingPathComponent(".claude/hooks/auto-approve.sh").path
 
-    // CC daemon strips hooks from ~/.claude/settings.json, but not from project-level .claude/settings.json
-    func projectCCPaths() -> [String] {
+    // Projects with .claude/ dir on Desktop
+    func projectDirs() -> [String] {
         let fm = FileManager.default
         let desktop = home.appendingPathComponent("Desktop")
-        var paths: [String] = []
-        paths.append(ccPath)
+        var dirs: [String] = []
         if let entries = try? fm.contentsOfDirectory(atPath: desktop.path) {
             for entry in entries where entry.hasPrefix(".") == false {
                 let proj = desktop.appendingPathComponent(entry)
                 var isDir: ObjCBool = false
-                if fm.fileExists(atPath: proj.path, isDirectory: &isDir), isDir.boolValue {
-                    let claudeDir = proj.appendingPathComponent(".claude")
-                    if fm.fileExists(atPath: claudeDir.path, isDirectory: &isDir), isDir.boolValue {
-                        paths.append(claudeDir.appendingPathComponent("settings.json").path)
-                    }
+                if fm.fileExists(atPath: proj.path, isDirectory: &isDir), isDir.boolValue,
+                   fm.fileExists(atPath: proj.appendingPathComponent(".claude").path, isDirectory: &isDir), isDir.boolValue {
+                    dirs.append(proj.path)
                 }
             }
         }
-        return Array(Set(paths))
+        return dirs
+    }
+
+    func projectCCPaths() -> [String] {
+        projectDirs().map { $0 + "/.claude/settings.json" }
+    }
+
+    func projectLocalCCPaths() -> [String] {
+        projectDirs().map { $0 + "/.claude/settings.local.json" }
     }
 
     init() {
@@ -63,9 +68,12 @@ class AppState: ObservableObject {
         if let cc = readJSON(ccPath) {
             let perm = cc["permissions"] as? [String: Any]
             let hasHook = cc["hooks"] != nil
-            // Also check project-level settings if user-level doesn't have hooks
+            // Check project-level settings.json for hooks
             let projectHooks = !hasHook && projectCCPaths().lazy.compactMap({ readJSON($0)?["hooks"] }).first != nil
-            ccEnabled = perm?["defaultMode"] as? String == "bypassPermissions" && (hasHook || projectHooks)
+            // Project-level settings.local.json may override global bypassPermissions; ensure it's set
+            let localFiles = projectLocalCCPaths()
+            let localBypass = localFiles.isEmpty || localFiles.lazy.compactMap({ (readJSON($0)?["permissions"] as? [String: Any])?["defaultMode"] as? String }).first == "bypassPermissions"
+            ccEnabled = perm?["defaultMode"] as? String == "bypassPermissions" && (hasHook || projectHooks) && localBypass
         }
         if let oc = readJSON(opencodePath) {
             let yolo = oc["yolo"]
@@ -103,12 +111,34 @@ class AppState: ObservableObject {
             }
             writeJSON(ccPath, cc)
         }
-        // Also write to project-level .claude/settings.json (daemon doesn't strip these)
-        for projPath in projectCCPaths() where projPath != ccPath {
+        // Project-level .claude/ (hooks + local permissions)
+        for projPath in projectCCPaths() {
             if ccEnabled {
                 writeJSON(projPath, ["hooks": ["PreToolUse": hookConfig]])
             } else {
                 try? FileManager.default.removeItem(atPath: projPath)
+            }
+        }
+        // Project-level .claude/settings.local.json may override global bypassPermissions
+        for localPath in projectLocalCCPaths() {
+            if ccEnabled {
+                var local = readJSON(localPath) ?? [:]
+                var perm = local["permissions"] as? [String: Any] ?? [:]
+                perm["defaultMode"] = "bypassPermissions"
+                local["permissions"] = perm
+                writeJSON(localPath, local)
+            } else {
+                if var local = readJSON(localPath) {
+                    if var perm = local["permissions"] as? [String: Any] {
+                        perm.removeValue(forKey: "defaultMode")
+                        if perm.isEmpty {
+                            local.removeValue(forKey: "permissions")
+                        } else {
+                            local["permissions"] = perm
+                        }
+                        writeJSON(localPath, local)
+                    }
+                }
             }
         }
 
