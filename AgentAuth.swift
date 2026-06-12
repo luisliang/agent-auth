@@ -21,23 +21,36 @@ class AppState: ObservableObject {
     @Published var hermesEnabled: Bool = false
     @Published var opencodeEnabled: Bool = false
     @Published var statusMessage: String = ""
-    @Published var debugInfo: String = ""
 
     let home = FileManager.default.homeDirectoryForCurrentUser
+    let logPath = "/tmp/agent-auth.log"
     lazy var ccPath = home.appendingPathComponent(".claude/settings.json").path
     lazy var opencodePath = home.appendingPathComponent(".config/opencode/opencode.json").path
     lazy var hermesPath = home.appendingPathComponent(".hermes/config.yaml").path
     lazy var hookDir = home.appendingPathComponent(".claude/hooks").path
     lazy var hookScript = home.appendingPathComponent(".claude/hooks/auto-approve.sh").path
 
+    func log(_ msg: String) {
+        if let d = (msg + "\n").data(using: .utf8) {
+            let fm = FileManager.default
+            if fm.fileExists(atPath: logPath) {
+                if let fh = FileHandle(forWritingAtPath: logPath) {
+                    fh.seekToEndOfFile()
+                    fh.write(d)
+                    try? fh.close()
+                }
+            } else {
+                try? d.write(to: URL(fileURLWithPath: logPath))
+            }
+        }
+    }
+
     // CC daemon strips hooks from ~/.claude/settings.json, but not from project-level .claude/settings.json
     func projectCCPaths() -> [String] {
         let fm = FileManager.default
         let desktop = home.appendingPathComponent("Desktop")
         var paths: [String] = []
-        // Always write to user-level (loaded during session before daemon strips)
         paths.append(ccPath)
-        // Also write to project dirs that have .claude/
         if let entries = try? fm.contentsOfDirectory(atPath: desktop.path) {
             for entry in entries where entry.hasPrefix(".") == false {
                 let proj = desktop.appendingPathComponent(entry)
@@ -50,18 +63,24 @@ class AppState: ObservableObject {
                 }
             }
         }
-        return Array(Set(paths)) // deduplicate
+        return Array(Set(paths))
     }
 
     init() {
+        log("=== AgentAuth init ===")
+        log("home=\(home.path)")
+        log("opencodePath=\(opencodePath)")
+        let ocExists = FileManager.default.fileExists(atPath: opencodePath)
+        log("opencode.json exists=\(ocExists)")
         loadCurrentState()
-        // Final debug: what readJSON returns for opencode
-        if let oc = readJSON(opencodePath), let yolo = oc["yolo"] {
-            debugInfo = "yolo=\(yolo) (\(type(of: yolo)))"
+        log("ccEnabled=\(ccEnabled) opencodeEnabled=\(opencodeEnabled) hermesEnabled=\(hermesEnabled)")
+        if let oc = readJSON(opencodePath) {
+            log("opencode dict keys=\(oc.keys)")
+            log("yolo=\(oc["yolo"] ?? "nil")")
         } else {
-            let exists = FileManager.default.fileExists(atPath: opencodePath)
-            debugInfo = "yolo=not-found file=\(exists)"
+            log("readJSON returned nil")
         }
+        log("=== init done ===")
     }
 
     func loadCurrentState() {
@@ -192,17 +211,13 @@ struct ContentView: View {
                 AgentRow(icon: "chevron.left.forwardslash.chevron.right", name: "OpenCode", desc: "permission: allow + yolo", isOn: $state.opencodeEnabled)
             }.padding(.vertical, 12)
             Divider()
-            VStack(spacing: 2) {
-                Text(state.debugInfo.isEmpty ? "(no debug)" : state.debugInfo)
-                    .font(.caption2).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                HStack {
-                    if !state.statusMessage.isEmpty { Text(state.statusMessage).font(.subheadline).foregroundColor(.green) }
-                    Spacer()
-                    Button("应用") { state.apply() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                }
-            }.padding(.horizontal, 20).padding(.vertical, 10)
+            HStack {
+                if !state.statusMessage.isEmpty { Text(state.statusMessage).font(.subheadline).foregroundColor(.green) }
+                Spacer()
+                Button("应用") { state.apply() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+            }.padding(.horizontal, 20).padding(.vertical, 14)
         }
-        .frame(width: 380, height: 300)
+        .frame(width: 380, height: 280)
         .background(Color(NSColor.windowBackgroundColor))
     }
 }
