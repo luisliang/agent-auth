@@ -34,7 +34,7 @@ struct OpenCodeConfig: Codable {
     var plugin: [String]?
     var mcp: [String: MCPConfig]?
     var skills: SkillsConfig?
-    var provider: [String: String]?
+    var provider: [String: JSONValue]?
 }
 
 struct MCPConfig: Codable {
