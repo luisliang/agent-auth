@@ -51,11 +51,11 @@ class AppState: ObservableObject {
     }
 
     init() {
-        FileManager.default.createFile(
-            atPath: home.appendingPathComponent("Desktop/agent-auth-marker.txt").path,
-            contents: Data("init ran\n".utf8),
-            attributes: nil
-        )
+        loadCurrentState()
+    }
+    
+    /// Called from onAppear to ensure @Published values refresh the UI
+    func refreshUI() {
         loadCurrentState()
     }
 
@@ -195,6 +195,7 @@ struct ContentView: View {
         }
         .frame(width: 380, height: 280)
         .background(Color(NSColor.windowBackgroundColor))
+        .onAppear { state.refreshUI() }
     }
 }
 
