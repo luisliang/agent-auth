@@ -23,27 +23,11 @@ class AppState: ObservableObject {
     @Published var statusMessage: String = ""
 
     let home = FileManager.default.homeDirectoryForCurrentUser
-    let logPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/agent-auth.log").path
     lazy var ccPath = home.appendingPathComponent(".claude/settings.json").path
     lazy var opencodePath = home.appendingPathComponent(".config/opencode/opencode.json").path
     lazy var hermesPath = home.appendingPathComponent(".hermes/config.yaml").path
     lazy var hookDir = home.appendingPathComponent(".claude/hooks").path
     lazy var hookScript = home.appendingPathComponent(".claude/hooks/auto-approve.sh").path
-
-    func log(_ msg: String) {
-        if let d = (msg + "\n").data(using: .utf8) {
-            let fm = FileManager.default
-            if fm.fileExists(atPath: logPath) {
-                if let fh = FileHandle(forWritingAtPath: logPath) {
-                    fh.seekToEndOfFile()
-                    fh.write(d)
-                    try? fh.close()
-                }
-            } else {
-                try? d.write(to: URL(fileURLWithPath: logPath))
-            }
-        }
-    }
 
     // CC daemon strips hooks from ~/.claude/settings.json, but not from project-level .claude/settings.json
     func projectCCPaths() -> [String] {
@@ -67,20 +51,12 @@ class AppState: ObservableObject {
     }
 
     init() {
-        log("=== AgentAuth init ===")
-        log("home=\(home.path)")
-        log("opencodePath=\(opencodePath)")
-        let ocExists = FileManager.default.fileExists(atPath: opencodePath)
-        log("opencode.json exists=\(ocExists)")
+        FileManager.default.createFile(
+            atPath: home.appendingPathComponent("Desktop/agent-auth-marker.txt").path,
+            contents: Data("init ran\n".utf8),
+            attributes: nil
+        )
         loadCurrentState()
-        log("ccEnabled=\(ccEnabled) opencodeEnabled=\(opencodeEnabled) hermesEnabled=\(hermesEnabled)")
-        if let oc = readJSON(opencodePath) {
-            log("opencode dict keys=\(oc.keys)")
-            log("yolo=\(oc["yolo"] ?? "nil")")
-        } else {
-            log("readJSON returned nil")
-        }
-        log("=== init done ===")
     }
 
     func loadCurrentState() {
