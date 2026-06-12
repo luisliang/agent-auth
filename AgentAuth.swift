@@ -21,6 +21,7 @@ class AppState: ObservableObject {
     @Published var hermesEnabled: Bool = false
     @Published var opencodeEnabled: Bool = false
     @Published var statusMessage: String = ""
+    @Published var debugInfo: String = ""
 
     let home = FileManager.default.homeDirectoryForCurrentUser
     lazy var ccPath = home.appendingPathComponent(".claude/settings.json").path
@@ -63,7 +64,11 @@ class AppState: ObservableObject {
             ccEnabled = perm?["defaultMode"] as? String == "bypassPermissions" && (hasHook || projectHooks)
         }
         if let oc = readJSON(opencodePath) {
-            opencodeEnabled = oc["yolo"] as? Bool == true
+            let yolo = oc["yolo"]
+            opencodeEnabled = (yolo as? Bool) == true
+            debugInfo = "OC: yolo=\(yolo ?? "nil") enabled=\(opencodeEnabled)"
+        } else {
+            debugInfo = "OC: readJSON nil"
         }
         if let content = try? String(contentsOfFile: hermesPath) {
             hermesEnabled = content.contains("mode: auto") && content.contains("subagent_auto_approve: true")
@@ -181,13 +186,16 @@ struct ContentView: View {
                 AgentRow(icon: "chevron.left.forwardslash.chevron.right", name: "OpenCode", desc: "permission: allow + yolo", isOn: $state.opencodeEnabled)
             }.padding(.vertical, 12)
             Divider()
-            HStack {
-                if !state.statusMessage.isEmpty { Text(state.statusMessage).font(.subheadline).foregroundColor(.green) }
-                Spacer()
-                Button("应用") { state.apply() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-            }.padding(.horizontal, 20).padding(.vertical, 14)
+            VStack(spacing: 2) {
+                if !state.debugInfo.isEmpty { Text(state.debugInfo).font(.caption2).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
+                HStack {
+                    if !state.statusMessage.isEmpty { Text(state.statusMessage).font(.subheadline).foregroundColor(.green) }
+                    Spacer()
+                    Button("应用") { state.apply() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                }
+            }.padding(.horizontal, 20).padding(.vertical, 10)
         }
-        .frame(width: 380, height: 280)
+        .frame(width: 380, height: 300)
         .background(Color(NSColor.windowBackgroundColor))
     }
 }
