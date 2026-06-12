@@ -1,73 +1,18 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Config Models
-struct CCConfig: Codable {
-    var permissions: CCPermissions?
-    var skipDangerousModePermissionPrompt: Bool?
-    var additionalDirectories: [String]?
-    var hooks: [String: [HookRule]]?
-    var env: [String: String]?
-    var includeCoAuthoredBy: Bool?
-    var model: String?
-    var theme: String?
+// MARK: - JSON read/write helpers
+func readJSON(_ path: String) -> [String: Any]? {
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return nil }
+    return json
 }
 
-struct CCPermissions: Codable {
-    var defaultMode: String?
-    var allow: [String]?
-}
-
-struct HookRule: Codable {
-    var matcher: String?
-    var hooks: [HookCommand]?
-}
-
-struct HookCommand: Codable {
-    var type: String?
-    var command: String?
-}
-
-struct OpenCodeConfig: Codable {
-    var permission: JSONValue?
-    var yolo: Bool?
-    var plugin: [String]?
-    var mcp: [String: MCPConfig]?
-    var skills: SkillsConfig?
-    var provider: [String: JSONValue]?
-}
-
-struct MCPConfig: Codable {
-    var type: String?
-    var command: [String]?
-    var enabled: Bool?
-}
-
-struct SkillsConfig: Codable {
-    var paths: [String]?
-}
-
-enum JSONValue: Codable {
-    case string(String)
-    case bool(Bool)
-    case dictionary([String: JSONValue])
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let str = try? container.decode(String.self) { self = .string(str) }
-        else if let bool = try? container.decode(Bool.self) { self = .bool(bool) }
-        else if let dict = try? container.decode([String: JSONValue].self) { self = .dictionary(dict) }
-        else { throw DecodingError.typeMismatch(JSONValue.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unsupported type")) }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .string(let str): try container.encode(str)
-        case .bool(let bool): try container.encode(bool)
-        case .dictionary(let dict): try container.encode(dict)
-        }
-    }
+func writeJSON(_ path: String, _ dict: [String: Any]) {
+    guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
+    else { return }
+    try? data.write(to: URL(fileURLWithPath: path))
 }
 
 // MARK: - App State
@@ -87,13 +32,12 @@ class AppState: ObservableObject {
     init() { loadCurrentState() }
 
     func loadCurrentState() {
-        if let data = try? Data(contentsOf: URL(fileURLWithPath: ccPath)),
-           let config = try? JSONDecoder().decode(CCConfig.self, from: data) {
-            ccEnabled = config.permissions?.defaultMode == "bypassPermissions" && config.hooks != nil
+        if let cc = readJSON(ccPath) {
+            let perm = cc["permissions"] as? [String: Any]
+            ccEnabled = perm?["defaultMode"] as? String == "bypassPermissions" && cc["hooks"] != nil
         }
-        if let data = try? Data(contentsOf: URL(fileURLWithPath: opencodePath)),
-           let config = try? JSONDecoder().decode(OpenCodeConfig.self, from: data) {
-            opencodeEnabled = config.yolo == true
+        if let oc = readJSON(opencodePath) {
+            opencodeEnabled = oc["yolo"] as? Bool == true
         }
         if let content = try? String(contentsOfFile: hermesPath) {
             hermesEnabled = content.contains("mode: auto") && content.contains("subagent_auto_approve: true")
@@ -106,68 +50,72 @@ class AppState: ObservableObject {
         try? hookContent.write(toFile: hookScript, atomically: true, encoding: .utf8)
         try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o755)], ofItemAtPath: hookScript)
 
-        if let data = try? Data(contentsOf: URL(fileURLWithPath: ccPath)),
-           var config = try? JSONDecoder().decode(CCConfig.self, from: data) {
+        // ── Claude Code ──
+        if var cc = readJSON(ccPath) {
             if ccEnabled {
-                let hook = HookRule(matcher: "Read|Write|Edit|Bash|Glob|Grep|LS", hooks: [HookCommand(type: "command", command: "bash \(hookScript)")])
-                config.permissions = CCPermissions(defaultMode: "bypassPermissions", allow: ["*"])
-                config.skipDangerousModePermissionPrompt = true
-                config.additionalDirectories = [home.path]
-                config.hooks = ["PreToolUse": [hook]]
+                cc["permissions"] = ["defaultMode": "bypassPermissions", "allow": ["*"]]
+                cc["skipDangerousModePermissionPrompt"] = true
+                cc["additionalDirectories"] = [home.path]
+                cc["hooks"] = [
+                    "PreToolUse": [[
+                        "matcher": "Read|Write|Edit|Bash|Glob|Grep|LS",
+                        "hooks": [["type": "command", "command": "bash \(hookScript)"]]
+                    ]]
+                ]
             } else {
-                config.permissions = CCPermissions(defaultMode: "default", allow: [])
-                config.skipDangerousModePermissionPrompt = nil
-                config.additionalDirectories = nil
-                config.hooks = nil
+                cc["permissions"] = ["defaultMode": "default", "allow": []]
+                cc.removeValue(forKey: "skipDangerousModePermissionPrompt")
+                cc.removeValue(forKey: "additionalDirectories")
+                cc.removeValue(forKey: "hooks")
                 try? FileManager.default.removeItem(atPath: hookScript)
             }
-            if let encoded = try? JSONEncoder().encode(config),
-               let json = try? JSONSerialization.jsonObject(with: encoded),
-               let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
-                try? pretty.write(to: URL(fileURLWithPath: ccPath))
-            }
+            writeJSON(ccPath, cc)
         }
 
-        if let data = try? Data(contentsOf: URL(fileURLWithPath: opencodePath)),
-           var config = try? JSONDecoder().decode(OpenCodeConfig.self, from: data) {
-            if opencodeEnabled { config.permission = .string("allow"); config.yolo = true }
-            else { config.permission = nil; config.yolo = nil }
-            if let encoded = try? JSONEncoder().encode(config),
-               let json = try? JSONSerialization.jsonObject(with: encoded),
-               let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
-                try? pretty.write(to: URL(fileURLWithPath: opencodePath))
+        // ── OpenCode ──
+        if var oc = readJSON(opencodePath) {
+            if opencodeEnabled {
+                oc["permission"] = "allow"; oc["yolo"] = true
+            } else {
+                oc.removeValue(forKey: "permission"); oc.removeValue(forKey: "yolo")
             }
+            writeJSON(opencodePath, oc)
         }
 
+        // ── Hermes ──
         if let content = try? String(contentsOfFile: hermesPath) {
             let lines = content.components(separatedBy: "\n")
             var out: [String] = []; var i = 0
+            let p1 = try? NSRegularExpression(pattern: "^approvals:\\s*$")
+            let p2 = try? NSRegularExpression(pattern: "^  subagent_auto_approve:\\s*(true|false)")
+            let p3 = try? NSRegularExpression(pattern: "^hooks_auto_accept:\\s*(true|false)")
             while i < lines.count {
                 let line = lines[i]
-                let p1 = try? NSRegularExpression(pattern: "^approvals:\\s*$")
-                let p2 = try? NSRegularExpression(pattern: "^  subagent_auto_approve:\\s*(true|false)")
-                let p3 = try? NSRegularExpression(pattern: "^  hooks_auto_accept:\\s*(true|false)")
                 if hermesEnabled {
                     if let p = p1, p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)) != nil,
                        i+1 < lines.count, lines[i+1].contains("mode: manual") {
                         out.append(line); out.append(lines[i+1].replacingOccurrences(of: "manual", with: "auto")); i+=2; continue
                     }
-                    if let p = p2, let m = p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)), m.numberOfRanges > 1 {
-                        if (line as NSString).substring(with: m.range(at: 1)) == "false" { out.append(line.replacingOccurrences(of: "false", with: "true")); i+=1; continue }
+                    if let p = p2, let m = p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)), m.numberOfRanges > 1,
+                       (line as NSString).substring(with: m.range(at: 1)) == "false" {
+                        out.append(line.replacingOccurrences(of: "false", with: "true")); i+=1; continue
                     }
-                    if let p = p3, let m = p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)), m.numberOfRanges > 1 {
-                        if (line as NSString).substring(with: m.range(at: 1)) == "false" { out.append(line.replacingOccurrences(of: "false", with: "true")); i+=1; continue }
+                    if let p = p3, let m = p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)), m.numberOfRanges > 1,
+                       (line as NSString).substring(with: m.range(at: 1)) == "false" {
+                        out.append(line.replacingOccurrences(of: "false", with: "true")); i+=1; continue
                     }
                 } else {
                     if let p = p1, p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)) != nil,
                        i+1 < lines.count, lines[i+1].contains("mode: auto") {
                         out.append(line); out.append(lines[i+1].replacingOccurrences(of: "auto", with: "manual")); i+=2; continue
                     }
-                    if let p = p2, let m = p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)), m.numberOfRanges > 1 {
-                        if (line as NSString).substring(with: m.range(at: 1)) == "true" { out.append(line.replacingOccurrences(of: "true", with: "false")); i+=1; continue }
+                    if let p = p2, let m = p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)), m.numberOfRanges > 1,
+                       (line as NSString).substring(with: m.range(at: 1)) == "true" {
+                        out.append(line.replacingOccurrences(of: "true", with: "false")); i+=1; continue
                     }
-                    if let p = p3, let m = p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)), m.numberOfRanges > 1 {
-                        if (line as NSString).substring(with: m.range(at: 1)) == "true" { out.append(line.replacingOccurrences(of: "true", with: "false")); i+=1; continue }
+                    if let p = p3, let m = p.firstMatch(in: line, range: NSRange(location: 0, length: line.count)), m.numberOfRanges > 1,
+                       (line as NSString).substring(with: m.range(at: 1)) == "true" {
+                        out.append(line.replacingOccurrences(of: "true", with: "false")); i+=1; continue
                     }
                 }
                 out.append(line); i+=1
