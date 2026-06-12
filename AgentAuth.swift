@@ -53,7 +53,16 @@ class AppState: ObservableObject {
         return Array(Set(paths)) // deduplicate
     }
 
-    init() { loadCurrentState() }
+    init() {
+        loadCurrentState()
+        // Final debug: what readJSON returns for opencode
+        if let oc = readJSON(opencodePath), let yolo = oc["yolo"] {
+            debugInfo = "yolo=\(yolo) (\(type(of: yolo)))"
+        } else {
+            let exists = FileManager.default.fileExists(atPath: opencodePath)
+            debugInfo = "yolo=not-found file=\(exists)"
+        }
+    }
 
     func loadCurrentState() {
         if let cc = readJSON(ccPath) {
@@ -66,9 +75,6 @@ class AppState: ObservableObject {
         if let oc = readJSON(opencodePath) {
             let yolo = oc["yolo"]
             opencodeEnabled = (yolo as? Bool) == true
-            debugInfo = "OC: yolo=\(yolo ?? "nil") enabled=\(opencodeEnabled)"
-        } else {
-            debugInfo = "OC: readJSON nil"
         }
         if let content = try? String(contentsOfFile: hermesPath) {
             hermesEnabled = content.contains("mode: auto") && content.contains("subagent_auto_approve: true")
@@ -187,7 +193,8 @@ struct ContentView: View {
             }.padding(.vertical, 12)
             Divider()
             VStack(spacing: 2) {
-                if !state.debugInfo.isEmpty { Text(state.debugInfo).font(.caption2).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
+                Text(state.debugInfo.isEmpty ? "(no debug)" : state.debugInfo)
+                    .font(.caption2).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                 HStack {
                     if !state.statusMessage.isEmpty { Text(state.statusMessage).font(.subheadline).foregroundColor(.green) }
                     Spacer()
