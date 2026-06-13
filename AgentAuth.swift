@@ -98,7 +98,7 @@ class AppState: ObservableObject {
         // Write to user-level (CC loads hooks at session start, daemon strips later)
         if var cc = readJSON(ccPath) {
             if ccEnabled {
-                cc["permissions"] = ["defaultMode": "bypassPermissions", "allow": ["*"]]
+                cc["permissions"] = ["defaultMode": "bypassPermissions"]
                 cc["skipDangerousModePermissionPrompt"] = true
                 cc["additionalDirectories"] = [home.path]
                 cc["hooks"] = ["PreToolUse": hookConfig]
