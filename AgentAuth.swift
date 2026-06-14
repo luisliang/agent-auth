@@ -10,7 +10,7 @@ func readJSON(_ path: String) -> [String: Any]? {
 }
 
 func writeJSON(_ path: String, _ dict: [String: Any]) {
-    guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
+    guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     else { return }
     try? data.write(to: URL(fileURLWithPath: path))
 }
@@ -170,10 +170,10 @@ class AppState: ObservableObject {
            var perms = settings["permissions"] as? [String: Any] {
             perms["autoApprove"] = opencodeEnabled
             settings["permissions"] = perms
-            if let newS = try? JSONSerialization.data(withJSONObject: settings, options: []),
+            if let newS = try? JSONSerialization.data(withJSONObject: settings, options: [.withoutEscapingSlashes]),
                let newStr = String(data: newS, encoding: .utf8) {
                 outer["settings.v3"] = newStr
-                if let final = try? JSONSerialization.data(withJSONObject: outer, options: [.prettyPrinted]) {
+                if let final = try? JSONSerialization.data(withJSONObject: outer, options: [.prettyPrinted, .withoutEscapingSlashes]) {
                     try? final.write(to: URL(fileURLWithPath: ocDesktopSettings))
                 }
             }
