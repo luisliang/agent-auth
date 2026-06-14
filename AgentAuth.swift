@@ -28,6 +28,7 @@ class AppState: ObservableObject {
     lazy var hermesPath = home.appendingPathComponent(".hermes/config.yaml").path
     lazy var hookDir = home.appendingPathComponent(".claude/hooks").path
     lazy var hookScript = home.appendingPathComponent(".claude/hooks/auto-approve.sh").path
+    lazy var ocDesktopSettings = home.appendingPathComponent("Library/Application Support/ai.opencode.desktop/default.dat").path
 
     // Projects with .claude/ dir on Desktop
     func projectDirs() -> [String] {
@@ -78,6 +79,15 @@ class AppState: ObservableObject {
         if let oc = readJSON(opencodePath) {
             let yolo = oc["yolo"]
             opencodeEnabled = (yolo as? Bool) == true
+        }
+        // Also check OpenCode Desktop autoApprove setting
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: ocDesktopSettings)),
+           let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let settingsStr = outer["settings.v3"] as? String,
+           let settingsData = settingsStr.data(using: .utf8),
+           let settings = try? JSONSerialization.jsonObject(with: settingsData) as? [String: Any],
+           let perms = settings["permissions"] as? [String: Any] {
+            opencodeEnabled = opencodeEnabled && (perms["autoApprove"] as? Bool == true)
         }
         if let content = try? String(contentsOfFile: hermesPath) {
             hermesEnabled = content.contains("mode: auto") && content.contains("subagent_auto_approve: true")
@@ -150,6 +160,23 @@ class AppState: ObservableObject {
                 oc.removeValue(forKey: "permission"); oc.removeValue(forKey: "yolo")
             }
             writeJSON(opencodePath, oc)
+        }
+        // OpenCode Desktop autoApprove
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: ocDesktopSettings)),
+           var outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let settingsStr = outer["settings.v3"] as? String,
+           let sdata = settingsStr.data(using: .utf8),
+           var settings = try? JSONSerialization.jsonObject(with: sdata) as? [String: Any],
+           var perms = settings["permissions"] as? [String: Any] {
+            perms["autoApprove"] = opencodeEnabled
+            settings["permissions"] = perms
+            if let newS = try? JSONSerialization.data(withJSONObject: settings, options: []),
+               let newStr = String(data: newS, encoding: .utf8) {
+                outer["settings.v3"] = newStr
+                if let final = try? JSONSerialization.data(withJSONObject: outer, options: [.prettyPrinted]) {
+                    try? final.write(to: URL(fileURLWithPath: ocDesktopSettings))
+                }
+            }
         }
 
         // ── Hermes ──
